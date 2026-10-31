@@ -14,6 +14,8 @@ All notable changes to this project are documented here. The format follows
 - `CONTRIBUTING.md`, `SECURITY.md`, `PULL_REQUEST_TEMPLATE.md`, `.editorconfig`.
 - Test that the runtime package imports nothing outside the standard library, so the
   "zero dependencies" promise cannot rot silently.
+- `tests/test_policy_gate.py` runs the PR-policy script extracted from the workflow against
+  compliant, unfilled, double-ticked, placeholder and docs-only PR descriptions.
 
 ### Changed
 
