@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Syntax check
+        run: python -m compileall -q step2api step2api.py tests scripts
+      - name: Lint (pyflakes)
+        run: |
+          python -m pip install --quiet pyflakes
+          python -m pyflakes step2api step2api.py tests scripts
+      - name: Unit + e2e tests (offline, fake upstream)
+        run: python -m unittest discover -s tests -v
+      - name: Build wheel
+        run: python -m pip wheel . --no-deps -w dist
+      - name: Install the wheel and run both entry points
+        run: |
+          python -m pip install --quiet --no-index --find-links dist step2api
+          test "$(step2api -V)" = "$(python -m step2api -V)"
+          python -c "import importlib.metadata as m; assert not m.requires('step2api'), 'runtime deps appeared'"
+
+  smoke:
+    # Real upstream is not reachable from CI; this only proves the server boots and serves
+    # the panel + health endpoint with an empty account pool.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Boot and probe
+        run: |
+          python step2api.py --port 8799 --data-dir /tmp/step2api-data &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8799/ping && break || sleep 1; done
+          test "$(curl -fsS http://127.0.0.1:8799/ping)" = "pong"
+          curl -fsS http://127.0.0.1:8799/health | tee /dev/stderr | grep -q '"status": "ok"'
+          curl -fsS http://127.0.0.1:8799/ | grep -q "step2api"

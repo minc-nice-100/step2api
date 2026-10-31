@@ -1,0 +1,75 @@
+name: policy
+
+# This repository takes pull requests only (issues and discussions are disabled), and
+# AI-generated code must arrive with its unit-test status. Both rules are only as good as
+# the gate that enforces them, so the PR description is checked here.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: policy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require AI disclosure and test evidence
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import sys
+
+          body = os.environ.get("PR_BODY") or ""
+          problems = []
+
+          if "## AI assistance disclosure" not in body:
+              problems.append("missing the '## AI assistance disclosure' section "
+                              "(use .github/PULL_REQUEST_TEMPLATE.md)")
+
+          boxes = re.findall(r"^- \[([ xX])\] ", body, re.M)
+          if not boxes:
+              problems.append("no AI-disclosure checkbox found; tick exactly one of the two boxes")
+          elif sum(1 for b in boxes if b.lower() == "x") != 1:
+              problems.append("tick exactly one AI-disclosure box (currently %d ticked)"
+                              % sum(1 for b in boxes if b.lower() == "x"))
+
+          if "**Test status:**" not in body:
+              problems.append("missing the '**Test status:**' line")
+          else:
+              tail = body.split("**Test status:**", 1)[1]
+              line = ""
+              for candidate in tail.splitlines():
+                  if candidate.strip():
+                      line = candidate.strip()
+                      break
+              line = line.strip("`").strip()
+              if not line or line.startswith("<") or line.lower() in {"todo", "n/a", "-"}:
+                  problems.append("'**Test status:**' must contain the command you ran and its "
+                                  "result (e.g. '352 passed, 0 failed — CPython 3.12, abc1234')")
+
+          # A test-evidence block: either a fenced block with real commands, or the explicit
+          # no-behaviour-change statement for docs-only PRs.
+          fenced = re.findall(r"```[a-zA-Z]*\n(.+?)```", body, re.S)
+          has_commands = any(("unittest" in block) or ("pyflakes" in block) for block in fenced)
+          docs_only = "no behaviour change" in body.lower() or "无行为变更" in body
+          if not has_commands and not docs_only:
+              problems.append("add a fenced block with the test command(s) you actually ran "
+                              "(or state 'no behaviour change' for a docs-only PR)")
+
+          if problems:
+              print("PR description is missing required policy fields:\n")
+              for problem in problems:
+                  print(" - " + problem)
+              print("\nSee CONTRIBUTING.md (AI 生成代码政策) and .github/PULL_REQUEST_TEMPLATE.md.")
+              sys.exit(1)
+          print("PR metadata OK: AI disclosure present, test status recorded.")
+          PY

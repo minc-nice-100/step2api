@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "step2api"
+version = "1.0.0"
+description = "OpenAI / Anthropic compatible gateway for StepFun AI Studio (studio.stepfun.com)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Unlicense" }
+authors = [{ name = "step2api contributors" }]
+keywords = ["stepfun", "openai", "anthropic", "gateway", "proxy", "llm"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "License :: Public Domain",
+  "Operating System :: OS Independent",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/minc-nice-100/step2api"
+Source = "https://github.com/minc-nice-100/step2api"
+Changelog = "https://github.com/minc-nice-100/step2api/blob/main/CHANGELOG.md"
+
+[project.scripts]
+step2api = "step2api.cli:main"
+
+[tool.setuptools]
+packages = ["step2api"]
+
+[tool.setuptools.package-data]
+step2api = ["py.typed"]
