@@ -172,6 +172,7 @@ wire_api = "responses"
 | GET | `/v1/models` | 模型目录（实时取自上游） |
 | GET | `/v1/models/{id}` | 单个模型详情 |
 | GET | `/health` `/ping` | 探活（不需要鉴权） |
+| GET | `/metrics` | Prometheus 文本指标（进程 / 并发 / 会话 / 账号状态 / 累计 token），与 `/v1` 同样鉴权；抓取不打上游 |
 | GET | `/` | Web 面板 |
 
 ### 请求扩展字段
@@ -345,8 +346,9 @@ docker compose up -d --build
 | 上游自检 `--doctor` | 真实上游全绿：续期并持久化、配额、模型目录、非流式/流式/**agent 模式**；`--media` 追加 TTS→上传→ASR 实跑（实测 52,902 字节 MP3 → 转写「你好，这是 Step 2 API 自检。」），同时验证两条媒体流都以 `done` 收尾；网关在跑时**拒绝执行**（exit 1、不续期），`--force` 可跳过 |
 | 启动脚本（4 个：普通/局域网 × bat/sh） | 逐个实跑：`.sh` 在 Git Bash 下挑到可用解释器、`.bat` 以 CRLF 保存并由 `chcp 65001` 正确显示中文；局域网模式无 Key 401、带 Key 200 |
 | 上游中途断流（`done` 之前就结束 / 200 但零事件） | fake 上游 `CUT` / `CUT_ONCE` / `EMPTY` 模式：流式客户端只收到 1 个 `error` 帧 + `[DONE]`，不补 `stop`；非流式与空流返回 502 而不是空答案；非流式断流会在新会话里重放一次（第二次仍断则 502），流式不重放；单账号耗尽重试时返回最初的上游错误（不再 `first=None` 静默成功）。去掉终止符检查或 `connected` 判据时对应用例转红（对质）；真实上游两种对话面都确认正常流以 `final` → `done` 收尾，TTS/ASR 截断单测同样在去掉检查时转红 |
-| Python 版本 | 测试套件在 CPython **3.9 / 3.10 / 3.11 / 3.12 / 3.13 / 3.14** 上逐一跑过，均全绿（360 项）；另有测试用 `ast.parse(feature_version=(3,9))` 把源码钉在 3.9 语法上，并静态检查运行时只导入标准库 |
+| Python 版本 | 测试套件在 CPython **3.9 / 3.10 / 3.11 / 3.12 / 3.13 / 3.14** 上逐一跑过，均全绿（361 项）；另有测试用 `ast.parse(feature_version=(3,9))` 把源码钉在 3.9 语法上，并静态检查运行时只导入标准库 |
 | 开源治理闸门 | `policy / pr-metadata` 对 PR 描述强制校验（AI 生成声明 + 测试结果 + 实跑命令）；`tests/test_policy_gate.py` 从工作流里抽出脚本，按「合规 / 未填写模板 / 双勾 / 占位符 / 纯文档」五种描述逐一验证，闸门本身也有回归测试 |
+| Prometheus 指标 | e2e 实跑 `/metrics`：`Content-Type` 为 `text/plain; version=0.0.4`，逐行校验「每个样本都是裸数字」，必需指标齐全；配了 Key 后无 Key 401、带 Key 200；抓取不触发上游请求 |
 | Docker | 未实测（本机无 Docker） |
 
 ## 自检
@@ -394,6 +396,24 @@ python scripts/soak.py --key sk-xxx                  # 网关配了 API Key 时�
 `healthy` 是"账号可用"（有 token、未冷却、未停用），**不代表上游可达**。上游是否正常要看请求错误体，
 或面板里的账号状态。`inflight` 长期不为 0 → 有请求卡住；`threads` 随时间单调上涨 → 有泄漏；
 `sessions` 是会话亲和缓存条目数（上限 1024，闲置 30 分钟淘汰）。
+
+**`/metrics` 怎么接**
+Prometheus 文本格式（`text/plain; version=0.0.4`），内容与 `/health` 同源、`# TYPE` 完整，
+只给聚合值（不暴露账号名/Key，避免标签转义与信息泄露）：
+
+```yaml
+scrape_configs:
+  - job_name: step2api
+    metrics_path: /metrics
+    authorization:
+      credentials: sf-...        # 面板生成的 Key；没有 Key 的本机网关可留空
+    static_configs:
+      - targets: ["127.0.0.1:8790"]
+```
+
+`step2api_accounts_available` 掉到 0 → 池里没有能用的账号；`step2api_inflight_requests`
+长期贴住 `STEP_MAX_CONCURRENCY` → 上游变慢，客户端在排队（排队 60s 会 429）。
+指标来自内存里已有的计数，抓取不会触发任何上游请求。
 
 **内存怎么看**
 RSS 呈锯齿：请求处理会产生引用环（handler↔server、闭包），靠循环回收器回收，不保证立即释放。

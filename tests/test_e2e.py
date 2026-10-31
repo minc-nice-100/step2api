@@ -676,6 +676,54 @@ class GatewayE2E(unittest.TestCase):
         if payload["rss_mb"] is not None:
             self.assertGreater(payload["rss_mb"], 0)
 
+    def test_metrics_are_prometheus_readable_and_keyed(self):
+        """`/metrics` must be scrape-ready: bare numbers, declared types, no upstream I/O."""
+        with urllib.request.urlopen(self.base + "/metrics", timeout=10) as resp:
+            self.assertEqual(resp.status, 200)
+            ctype = resp.headers.get("Content-Type") or ""
+            self.assertIn("text/plain", ctype)
+            self.assertIn("version=0.0.4", ctype)
+            body = resp.read().decode("utf-8")
+
+        samples, types = {}, set()
+        for line in body.splitlines():
+            if not line.strip():
+                continue
+            if line.startswith("# TYPE "):
+                types.add(line.split()[3])
+                continue
+            if line.startswith("#"):
+                continue
+            name, _, value = line.partition(" ")
+            self.assertNotEqual(value, "", "sample %r has no value" % name)
+            samples[name] = float(value)   # every sample must be a bare number
+
+        for required in ("step2api_up", "step2api_uptime_seconds",
+                         "step2api_inflight_requests", "step2api_sessions",
+                         "step2api_accounts_total", "step2api_accounts_available",
+                         "step2api_requests_total", "step2api_tokens_in_total",
+                         "step2api_tokens_out_total", "step2api_cached_tokens_total"):
+            self.assertIn(required, samples)
+        self.assertEqual(samples["step2api_up"], 1)
+        self.assertGreaterEqual(samples["step2api_accounts_total"], 1)
+        self.assertIn("gauge", types)
+        self.assertIn("counter", types)
+
+        # Once any key exists the endpoint is authenticated like the rest of the API.
+        entry = self.store.add_api_key("metrics")
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(self.base + "/metrics", timeout=10)
+            self.assertEqual(ctx.exception.code, 401)
+            ctx.exception.close()
+            req = urllib.request.Request(self.base + "/metrics",
+                                         headers={"Authorization": "Bearer " + entry["key"]})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertIn("step2api_up 1", resp.read().decode("utf-8"))
+        finally:
+            self.store.remove_api_key(entry["key"])
+
     def test_smoke_script_reports_all_green(self):
         """scripts/smoke.py is the deployment check: keep it working against a real server."""
         import contextlib

@@ -677,6 +677,21 @@ _ANTHROPIC_ERROR_TYPES = {
 }
 
 
+def _metric_value(value: Any) -> str:
+    """Prometheus wants a bare number; garbage or NaN must not corrupt the scrape."""
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, int):
+        return str(value)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "0"
+    if number != number or number in (float("inf"), float("-inf")):
+        return "0"
+    return str(int(number)) if number.is_integer() else repr(number)
+
+
 def _anthropic_error_type(status: int) -> str:
     return _ANTHROPIC_ERROR_TYPES.get(int(status), "api_error")
 
@@ -1073,6 +1088,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_text(200, "pong")
             if path == "/health":
                 return self._send_json(200, self._health())
+            if path == "/metrics":
+                return self._metrics()
             if path == "/":
                 # The panel holds a live session token in sessionStorage: a hostile page
                 # must not be able to frame it and trick clicks through it.
@@ -1241,6 +1258,59 @@ class Handler(BaseHTTPRequestHandler):
             "sessions": self.gw.sessions.count(),
             "rss_mb": process_rss_mb(),
         }
+
+    def _metrics(self) -> None:
+        """Prometheus text format: the numbers `/health` reports, plus account totals.
+
+        Deliberately aggregate-only: account names/ids are user data and would need label
+        escaping, while the useful signals (is it up, are accounts available, how much has
+        been spent) are sums. Scraping does not touch the upstream.
+        """
+        if not self._authorized():
+            return self._send_json(401, {"error": {"message": "invalid API key",
+                                                   "type": "invalid_request_error"}})
+        accounts = self.gw.store.accounts
+
+        def total(attr: str) -> int:
+            return sum(int(getattr(account, attr, 0) or 0) for account in accounts)
+
+        def gauge(name: str, help_text: str, value: float) -> List[str]:
+            return ["# HELP %s %s" % (name, help_text), "# TYPE %s gauge" % name,
+                    "%s %s" % (name, _metric_value(value))]
+
+        def counter(name: str, help_text: str, value: float) -> List[str]:
+            return ["# HELP %s %s" % (name, help_text), "# TYPE %s counter" % name,
+                    "%s %s" % (name, _metric_value(value))]
+
+        lines: List[str] = []
+        lines += gauge("step2api_up", "1 while the gateway process is serving HTTP.", 1)
+        lines += gauge("step2api_uptime_seconds", "Seconds since this process started.",
+                       int(time.time() - START_TIME))
+        lines += gauge("step2api_inflight_requests",
+                       "Upstream turns currently in flight (concurrency permits held).",
+                       self.gw.inflight_now)
+        lines += gauge("step2api_sessions", "Entries in the conversation-affinity cache.",
+                       self.gw.sessions.count())
+        lines += gauge("step2api_threads", "Live Python threads in the process.",
+                       threading.active_count())
+        lines += gauge("step2api_accounts_total", "Accounts in the pool.", len(accounts))
+        lines += gauge("step2api_accounts_available", "Accounts that may serve a request now.",
+                       sum(1 for account in accounts if account.available()))
+        lines += gauge("step2api_accounts_disabled", "Accounts parked (invalid credential).",
+                       sum(1 for account in accounts if getattr(account, "disabled", False)))
+        lines += gauge("step2api_accounts_cooling", "Accounts in a short error cooldown.",
+                       sum(1 for account in accounts
+                           if getattr(account, "cooling", False) and not account.disabled))
+        lines += counter("step2api_requests_total", "Turns served, counted per account.",
+                         total("requests"))
+        lines += counter("step2api_tokens_in_total", "Prompt tokens reported by the upstream.",
+                         total("tokens_in"))
+        lines += counter("step2api_tokens_out_total", "Completion tokens reported by the upstream.",
+                         total("tokens_out"))
+        lines += counter("step2api_cached_tokens_total", "Prompt tokens served from upstream cache.",
+                         total("cached_tokens"))
+        body = "\n".join(lines) + "\n"
+        return self._send_text(200, body, "text/plain; version=0.0.4; charset=utf-8")
 
     def _model_detail(self, model_id: str) -> None:
         if not self._authorized():

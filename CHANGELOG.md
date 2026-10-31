@@ -16,6 +16,9 @@ All notable changes to this project are documented here. The format follows
   "zero dependencies" promise cannot rot silently.
 - `tests/test_policy_gate.py` runs the PR-policy script extracted from the workflow against
   compliant, unfilled, double-ticked, placeholder and docs-only PR descriptions.
+- `GET /metrics`: Prometheus text-format metrics (process, concurrency, session cache,
+  account states, cumulative tokens), authenticated like the rest of the API and served
+  entirely from in-memory counters — scraping never touches the upstream.
 
 ### Changed
 
