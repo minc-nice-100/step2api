@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and commits follow
 [Conventional Commits](https://www.conventionalcommits.org/).
 
-## [Unreleased]
+## [1.1.0] - 2026-10-31
 
 ### Added
 
@@ -51,3 +51,6 @@ First public release.
 - Web panel (accounts, API keys, models, usage, request log, CSV export) and the
   `/admin/api/*` surface, with PBKDF2 password storage and a 15 s auto-refresh.
 - Zero runtime dependencies; Python 3.9–3.14.
+
+[1.1.0]: https://github.com/minc-nice-100/step2api/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/minc-nice-100/step2api/releases/tag/v1.0.0
