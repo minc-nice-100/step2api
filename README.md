@@ -542,6 +542,7 @@ Responses 的 `text.format`（同上两种 `type`）。Anthropic 协议没有对
 - **AI 生成代码必须随附单测情况**：PR 模板要求声明 AI 生成范围、对应测试与实跑结果；
   `policy / pr-metadata` 工作流会在缺失时红掉 PR。
 - **安全漏洞**请走私密渠道：[Security Policy](SECURITY.md)，不要用 PR 公开利用细节。
+- 版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，格式遵循 Keep a Changelog。
 
 ## 免责声明
 

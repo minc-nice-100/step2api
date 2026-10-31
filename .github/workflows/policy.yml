@@ -35,7 +35,12 @@ jobs:
               problems.append("missing the '## AI assistance disclosure' section "
                               "(use .github/PULL_REQUEST_TEMPLATE.md)")
 
-          boxes = re.findall(r"^- \[([ xX])\] ", body, re.M)
+          # Only the disclosure section's boxes count: the checklist below it also has
+          # ticked boxes, and counting those demanded "exactly one tick" from a correct PR.
+          section = body.split("## AI assistance disclosure", 1)[1] if (
+              "## AI assistance disclosure" in body) else ""
+          section = re.split(r"\n## ", section, maxsplit=1)[0]
+          boxes = re.findall(r"^- \[([ xX])\] ", section, re.M)
           if not boxes:
               problems.append("no AI-disclosure checkbox found; tick exactly one of the two boxes")
           elif sum(1 for b in boxes if b.lower() == "x") != 1:
